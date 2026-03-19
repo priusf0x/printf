@@ -1,0 +1,53 @@
+; =========================================================
+; |                 Printf implementation                 |
+; | Filename:................................. my_print.s |
+; | Architect:.....................................x86_16 |
+; | Assembler:...................................... nasm |
+; | Made for:.................................. Linux x86 |
+; | Author:..................................... pr1usf0x |
+; =========================================================
+
+; _________________________________________________________
+; |                     Function name                     |
+; _________________________________________________________
+
+global          my_pr1ntf
+
+; _________________________________________________________
+; |                       my_pr1ntf                       |
+; | Trampoline for printf function.                       |
+; | Args: Printf arguments considered to Fast-declaration |
+; | Returns:                                              |
+; | Delete:                                               |
+; _________________________________________________________
+
+section .text
+
+my_pr1ntf:
+
+;///////////////// Pushing arguments register /////////////
+                push rdi ; 1st argument 
+                push rsi ; 2st argument 
+                push rdx ; 3st argument 
+                push rcx ; 4st argument 
+                push r8  ; 5st argument 
+                push r9  ; 6st argument
+
+                jmp .printf
+            
+; _________________________________________________________
+; |                       .printf                         |
+; | Main printf function                                  |
+; | Args: Printf arguments considered to C-declaration    |
+; | Returns:                                              |
+; | Delete:                                               |
+; _________________________________________________________
+
+
+section     .data
+
+max_buffer_size equ 1024d
+buffer      db max_buffer_size dup(0)
+
+db          
+
