@@ -53,11 +53,23 @@ my_pr1ntf:
 
 ; rsi - pointer to printf buffer
 ; r8 - argument no
+; r11-r14 - save registers
+; r15 - float no  
 
 WriteSysCall    equ 1d
 StdOut          equ 1d
 
 print: 
+
+;///////////////// Saving "save" registers ////////////////
+
+                push r11
+                push r12
+                push r13
+                push r14
+
+;//////////////////////////////////////////////////////////
+
                 lea rsi, [rel buffer]
                 xor r8, r8 
 
@@ -73,6 +85,11 @@ print:
                 syscall 
             
 ;//////////////////////// Epilogue ////////////////////////
+
+                pop r14
+                pop r13
+                pop r12
+                pop r11
 
                 add rsp, 5 * 8
 
@@ -201,10 +218,19 @@ section .text
                 mov rax, [16 + rbp + r8*8]
                 inc r8
 
-                push rbx 
+                mov r11, rbx 
+                mov r12, rsi
+                mov r13, rdx
+
                 mov rbx, 10d
-                call print_in_system
-                pop rbx
+                call print_decemical
+                
+                mov rbx, r11
+                mov rsi, r12
+                mov rdx, r13
+
+                mov rcx, max_dec_length
+                call print_converted
 
                 ret
 
@@ -212,13 +238,13 @@ section .text
 
 .x:
 
-                mov rax, [16 + rbp + r8*8]
-                inc r8
-
-                push rbx 
-                mov rbx, 16d
-                call print_in_system
-                pop rbx
+                ;mov rax, [16 + rbp + r8*8]
+                ;inc r8
+                ;
+                ;push rbx 
+                ;mov rbx, 16d
+                ;call print_in_system
+                ;pop rbx
                 
                 ret
 
@@ -226,13 +252,13 @@ section .text
 
 .o:
 
-                mov rax, [16 + rbp + r8*8]
-                inc r8
-
-                push rbx 
-                mov rbx, 8d
-                call print_in_system
-                pop rbx
+                ;mov rax, [16 + rbp + r8*8]
+                ;inc r8
+                ;
+                ;push rbx 
+                ;mov rbx, 8d
+                ;call print_in_system
+                ;pop rbx
 
                 ret
 
@@ -259,39 +285,64 @@ section .text
 ;//////////////////////////////////////////////////////////
 
 ; _________________________________________________________
-; |                print_converted                        |
-; | Main printf function                                  |
+; |                  print_two_power                      |
+; | Separate eax in number-buffer in 2-power format       |
 ; | Args: eax - number                                    |
-; |       ebx - numerical system                          |
-; | Returns: rcx - string length                          |
-; | Delete: rdx, rcx, rax, rsi                            |
+; |       rsi - power_of_two                              |
+; | Delete: rdx, rcx, rax, rsi, ebx                       |
 ; _________________________________________________________
 
-convert_number:
+print_two_power:
+
+                mov byte [rel printsign], 0
+                mov rsi, printnumber
+                    
+                
+
+.loop:
+                mov [rsi], edx
+                inc rsi
+                dec rcx
+                jnz .loop
+
+                ret
+
+; _________________________________________________________
+; |                print_decemical                        |
+; | Separate eax in number-buffer in decemical format     |
+; | Args: eax - number                                    |
+; | Delete: rdx, rcx, rax, rsi, ebx                       |
+; _________________________________________________________
+
+max_dec_length  equ 10d
+
+print_decemical:
 
                 mov byte [rel printsign], 0
                 mov rsi, printnumber
 
+                mov bx, 10
                 cmp eax, 0
                 jge .skip_sign 
                 neg rax
                 mov byte [rel printsign], 0FFh
 .skip_sign:
-                mov rcx, max_num_len
+                mov rcx, max_dec_length
 .loop:
                 cdq
                 idiv ebx
                 mov [rsi], edx
                 inc rsi
-                dec cx 
+                dec rcx 
                 jnz .loop
 
                 ret
 
 ; _________________________________________________________
 ; |                 print_converted                       |
-; | Print converted number                                |
+; | Prints converted number                               |
 ; | Args: rsi - buffer                                    |
+; |       rcx - offset                                    |
 ; | Returns: adds to rdx amount of symbols                |
 ; | Delete: rsi, rax, rcx, r9                             |
 ; _________________________________________________________
@@ -299,6 +350,7 @@ convert_number:
 print_converted:
 
                 xor rax, rax
+
                 mov al, [rel printsign]
                 cmp al, 0
                 je .skip_sign
@@ -309,7 +361,7 @@ print_converted:
 .skip_sign: 
 
                 xor r9b, r9b
-                mov rcx, printnumber + max_num_len
+                add rcx, printnumber 
 
 .loop:
                 dec rcx
@@ -334,39 +386,14 @@ section     .rdata
 print_symbols db "0123456789abcdef"
 
 ; _________________________________________________________
-; |                 print_in_system                       |
-; | Inserts number in buffer                              |
-; | Args: rax - number                                    |
-; |       rbx - numerical system                          |
-; | Returns: adds to rdx amount of symbols                |
-; | Delete: rsi, rax, rcx, r9, rbx                        |
-; _________________________________________________________
-
-section .text
-
-print_in_system:
-
-                push rsi 
-                push rbx
-
-                mov r9, rdx
-                call convert_number
-                mov rdx, r9 
-
-                pop rbx
-                pop rsi
-
-                call print_converted
-
-                ret
-
-; _________________________________________________________
 ; |                 insert_string                         |
 ; | Inserts string in buffer                              |
 ; | Args: rax - ptr to string                             |
 ; | Returns: adds to rdx amount of symbols                |
 ; | Delete: rcx, rax, rsi                                 |
 ; _________________________________________________________
+
+section .text
 
 insert_string:
 
@@ -380,14 +407,14 @@ insert_string:
 
                 cmp cl, 0
                 jne .loop
-                                                        
+
                 ret                                       
 
 section     .data
 max_buffer_size equ 1024d
 buffer      db max_buffer_size dup(0)
 printsign   db 0
-max_num_len equ 16
+max_num_len equ 64
 printnumber db max_num_len dup (0)
 
 
