@@ -53,7 +53,7 @@ my_pr1ntf:
 
 ; rsi - pointer to printf buffer
 ; r8 - argument no
-; r11-r14 - save registers
+; r11-r15 - save registers
 ; r15 - float no  
 
 WriteSysCall    equ 1d
@@ -67,10 +67,11 @@ print:
                 push r12
                 push r13
                 push r14
+                push r15
 
 ;//////////////////////////////////////////////////////////
 
-                lea rsi, [rel buffer]
+                lea rsi, [rel printf_buffer]
                 xor r8, r8 
 
                 call transform_string
@@ -80,12 +81,13 @@ print:
                 mov rax, WriteSysCall
                 mov rdi, StdOut
 ; rdx is ready after transform_string
-                mov rsi, buffer
+                mov rsi, printf_buffer
 
                 syscall 
             
 ;//////////////////////// Epilogue ////////////////////////
 
+                pop r15
                 pop r14
                 pop r13
                 pop r12
@@ -101,6 +103,22 @@ print:
                 push rax
 
                 mov rax, rdx
+
+                ret
+
+; _________________________________________________________
+; |                     update_buffer                     |
+; | Updates buffer and prints it if it is neccessary      |
+; | Args: rdx - insert length                             |
+; | Delete: does it fuck you?                             |
+; _________________________________________________________
+
+update_buffer:
+
+                cmp rdx, [rel printf_buffer_len]
+                ja .clean_buffer
+
+.clean_buffer:
 
                 ret
 
@@ -165,7 +183,7 @@ handle_insertion:
 section .rdata 
 .jump_table:
                 dq .default;'a'
-                dq .default;'b'
+                dq .b      ;'b'
                 dq .c      ;'c'
                 dq .d      ;'d'
                 dq .default;'e'
@@ -223,7 +241,7 @@ section .text
                 mov r13, rdx
 
                 mov rbx, 10d
-                call print_decemical
+                call convert_decemical
                 
                 mov rbx, r11
                 mov rsi, r12
@@ -236,15 +254,24 @@ section .text
 
 ;//////////////////////////////////////////////////////////
 
+.b:
+                mov rax, [16 + rbp + r8*8]
+                inc r8
+                mov rcx, 1
+
+                call print_two_power
+
+                ret
+
+;//////////////////////////////////////////////////////////
+
 .x:
 
-                ;mov rax, [16 + rbp + r8*8]
-                ;inc r8
-                ;
-                ;push rbx 
-                ;mov rbx, 16d
-                ;call print_in_system
-                ;pop rbx
+                mov rax, [16 + rbp + r8*8]
+                inc r8
+                mov rcx, 4
+
+                call print_two_power
                 
                 ret
 
@@ -252,14 +279,12 @@ section .text
 
 .o:
 
-                ;mov rax, [16 + rbp + r8*8]
-                ;inc r8
-                ;
-                ;push rbx 
-                ;mov rbx, 8d
-                ;call print_in_system
-                ;pop rbx
+                mov rax, [16 + rbp + r8*8]
+                inc r8
+                mov rcx, 4
 
+                call print_two_power
+                
                 ret
 
 ;//////////////////////////////////////////////////////////
@@ -280,43 +305,94 @@ section .text
                 mov byte [rsi], '%'
                 inc rsi
                 inc rdx 
+
                 ret
 
 ;//////////////////////////////////////////////////////////
 
 ; _________________________________________________________
 ; |                  print_two_power                      |
-; | Separate eax in number-buffer in 2-power format       |
+; | Prints rax in 2-power format                          |
 ; | Args: eax - number                                    |
-; |       rsi - power_of_two                              |
-; | Delete: rdx, rcx, rax, rsi, ebx                       |
+; |       rcx - power_of_two                              |
+; | Returns: add to rdx printed amount                    |
+; |          skips rsi buffer                             |
+; | Delete: rax, rcx                                      |
 ; _________________________________________________________
 
 print_two_power:
 
+                mov r11, r9
+                mov r12, rdx
+                mov r13, rbx
+                mov r14, rsi
+                mov r15, rcx
+
+                call convert_two_power
+                
+                mov r9, r11
+                mov rdx, r12
+                mov rbx, r13
+                mov rsi, r14
+                mov rcx, r15
+
+                mov rax, max_num_len           
+                dec rcx
+                shr rax, rcx
+                mov rcx, rax
+                
+                call print_converted
+
+                ret
+
+; _________________________________________________________
+; |                  convert_two_power                    |
+; | Separate eax in number-buffer in 2-power format       |
+; | Args: eax - number                                    |
+; |       rcx - power_of_two                              |
+; | Delete: rdx, rcx, rax, rsi, rbx, r9, r10              |
+; _________________________________________________________
+
+convert_two_power:
+
                 mov byte [rel printsign], 0
                 mov rsi, printnumber
-                    
-                
 
-.loop:
-                mov [rsi], edx
-                inc rsi
+                xor r9, r9 
+                inc r9 
+                shl r9, rcx
+                dec r9
+
+                mov rdx, max_num_len           
                 dec rcx
+                shr rdx, rcx
+                inc rcx
+                
+.loop:
+                
+                mov rbx, rax 
+                and rbx, r9
+                mov [rsi], rbx
+                inc rsi
+
+                shr rax, cl 
+                dec rdx
                 jnz .loop
 
                 ret
 
 ; _________________________________________________________
-; |                print_decemical                        |
+; |                convert_decemical                      |
 ; | Separate eax in number-buffer in decemical format     |
 ; | Args: eax - number                                    |
+; | Returns: add to rdx printed amount                    |
+; |          skips rsi buffer                             |
 ; | Delete: rdx, rcx, rax, rsi, ebx                       |
 ; _________________________________________________________
 
 max_dec_length  equ 10d
 
-print_decemical:
+convert_decemical:
 
                 mov byte [rel printsign], 0
                 mov rsi, printnumber
@@ -343,7 +419,8 @@ print_decemical:
 ; | Prints converted number                               |
 ; | Args: rsi - buffer                                    |
 ; |       rcx - offset                                    |
-; | Returns: adds to rdx amount of symbols                |
+; | Returns: add to rdx printed amount                    |
+; |          skips rsi buffer                             |
 ; | Delete: rsi, rax, rcx, r9                             |
 ; _________________________________________________________
 
@@ -389,7 +466,8 @@ print_symbols db "0123456789abcdef"
 ; |                 insert_string                         |
 ; | Inserts string in buffer                              |
 ; | Args: rax - ptr to string                             |
-; | Returns: adds to rdx amount of symbols                |
+; | Returns: add to rdx printed amount                    |
+; |          skips rsi buffer                             |
 ; | Delete: rcx, rax, rsi                                 |
 ; _________________________________________________________
 
@@ -411,10 +489,15 @@ insert_string:
                 ret                                       
 
 section     .data
-max_buffer_size equ 1024d
-buffer      db max_buffer_size dup(0)
-printsign   db 0
-max_num_len equ 64
-printnumber db max_num_len dup (0)
+max_printf_buffer_size      equ 1024d
+printf_buffer_len           dq 0
+printf_buffer               db max_printf_buffer_size dup(0)
+
+max_insert_buffer_size      equ 128d
+insert_buffer               db max_insert_buffer_size dup(0)
+
+printsign                   db 0
+max_num_len                 equ 32
+printnumber                 db max_num_len dup (0)
 
 
