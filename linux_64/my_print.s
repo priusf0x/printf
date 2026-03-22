@@ -42,6 +42,9 @@ my_pr1ntf:
 
                 jmp print
 
+section .data  
+
+
 ; _________________________________________________________
 ; |                       print                           |
 ; | Main printf function                                  |
@@ -50,6 +53,8 @@ my_pr1ntf:
 ; | Returns:                                              |
 ; | Delete:                                               |
 ; _________________________________________________________
+
+section .text
 
 ; rsi - pointer to printf buffer
 ; r8 - argument no
@@ -115,16 +120,24 @@ print:
 
 update_buffer:
 
-                mov rcx, max_printf_buffer_size
-                sub rcx, [rel printf_buffer_len]
+                mov rcx, [rel printf_buffer_len]
+                add rcx, rdx
+                cmp rcx, max_printf_buffer_size
 
-                cmp rdx, rcx
                 ja .clean_buffer
 
                 mov rsi, printf_buffer
                 add rsi, [rel printf_buffer_len]
-                add [rel printf_buffer_len], rcx
+                mov rcx, rdx 
+                add [rel printf_buffer_len], rdx
                 mov rdx, insert_buffer
+
+                mov al, [rel is_string]
+                test al, al
+
+                jz .loop
+                mov rdx, [rel insert_buffer]
+                mov byte [rel is_string], 00h
 
 .loop:
                 mov al, [rdx] 
@@ -141,6 +154,7 @@ update_buffer:
 
 .clean_buffer:
                 
+                push rdi
                 push rdx
 
                 mov rdx, [rel printf_buffer_len] 
@@ -151,13 +165,22 @@ update_buffer:
 
                 syscall
 
+                mov al, [rel is_string]
+                test al, al
+
+                mov rsi, insert_buffer
+                jz .skip_string
+                mov rsi, [rel insert_buffer]
+                mov byte [rel is_string], 00h
+.skip_string:
+
                 mov rax, SysCallWrite
                 pop rdx
-                mov rsi, insert_buffer
 
                 syscall 
-                  
-                mov rdi, printf_buffer
+
+                pop rdi 
+                mov rsi, printf_buffer
                 mov qword [rel printf_buffer_len], 0
 
 .leave:
@@ -178,29 +201,48 @@ transform_string:
                 mov rsi, printf_buffer
                 xor rdx, rdx
 
-
 .loop: ; transfering and editing source string to buffer 
+                cmp rdx, max_printf_buffer_size  
+                je .clean_buffer
+
                 mov al, [rdi]   
 
+                cmp al, '%'
+                je .handle_percent
+
+                mov [rsi], al
+                inc rdi
                 inc rdx
                 inc rsi
-                inc rdi
+                test al, al
+                jne .loop
 
-                cmp al, '%'
-                jne .skip_call
+                add [rel printf_buffer_len], rdx
+                                                        
+                ret                                       
+
+.handle_percent:
+    
+                inc rdi
                 add [rel printf_buffer_len], rdx
                 xor rdx, rdx 
                 call handle_insertion 
                 xor rdx, rdx 
-                jmp .skip_insertion
-.skip_call:
-                mov [rsi], al
-.skip_insertion:
+                jmp .loop
                 
-                cmp al, 0
-                jne .loop
-                                                        
-                ret                                       
+.clean_buffer:
+
+                mov r11, rdi
+                mov rax, SysCallWrite
+                mov rdi, StdOut
+                mov rsi, printf_buffer
+                syscall
+                xor rdx, rdx
+                mov rsi, printf_buffer
+                mov rdi, r11 
+                jmp  .loop
+
+
                                                           
 ; _________________________________________________________
 ; |                handle_insertion                       |
@@ -212,6 +254,9 @@ transform_string:
 ; _________________________________________________________
 
 handle_insertion:
+
+                push update_buffer
+                mov rsi, insert_buffer
 
                 xor rax, rax 
 
@@ -225,8 +270,6 @@ handle_insertion:
                 cmp al, 'z'     ; other default cases  
                 ja .default
 
-                mov rsi, insert_buffer
-                push update_buffer
                 jmp [.jump_table + 8*rax]
 
 section .rdata 
@@ -270,12 +313,12 @@ section .text
 ;//////////////////////////////////////////////////////////
 
 .c:
-                mov rax, [16 + rbp + r8]
+                mov rax, [16 + rbp + r8*8]
                 mov [rsi], al
+                inc r8
 
                 inc rsi
                 inc rdx 
-                inc r8
                 ret
 
 ;//////////////////////////////////////////////////////////
@@ -385,10 +428,7 @@ print_two_power:
                 mov rsi, r14
                 mov rcx, r15
 
-                mov rax, max_num_len           
-                dec rcx
-                shr rax, rcx
-                mov rcx, rax
+                mov rcx, max_num_len           
                 
                 call print_converted
 
@@ -413,9 +453,6 @@ convert_two_power:
                 dec r9
 
                 mov rdx, max_num_len           
-                dec rcx
-                shr rdx, rcx
-                inc rcx
                 
 .loop:
                 
@@ -524,26 +561,30 @@ section .text
 
 insert_string:
 
+                mov [rel insert_buffer], rax 
+
 .loop: 
-                mov cl, [rax]   
-                mov [rsi], cl
-
-                inc rdx
-                inc rsi
-                inc rax
-
+                mov cl, [rax]
                 cmp cl, 0
-                jne .loop
+                jz .leave 
+
+                inc rax
+                inc rdx
+                jmp .loop
+.leave:
+
+                mov byte [rel is_string], 0FFh 
 
                 ret                                       
-
+                     
 section     .data
-max_printf_buffer_size      equ 1024d
+max_printf_buffer_size      equ 10d
 printf_buffer_len           dq 0
 printf_buffer               db max_printf_buffer_size dup(0)
 
 max_insert_buffer_size      equ 128d
 insert_buffer               db max_insert_buffer_size dup(0)
+is_string                   db 0
 
 printsign                   db 0
 max_num_len                 equ 32
