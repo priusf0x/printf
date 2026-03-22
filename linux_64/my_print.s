@@ -56,7 +56,7 @@ my_pr1ntf:
 ; r11-r15 - save registers
 ; r15 - float no  
 
-WriteSysCall    equ 1d
+SysCallWrite    equ 1d
 StdOut          equ 1d
 
 print: 
@@ -78,9 +78,9 @@ print:
 
 ;//////////////// Printing string to stdout /////////////// 
 
-                mov rax, WriteSysCall
+                mov rax, SysCallWrite
                 mov rdi, StdOut
-; rdx is ready after transform_string
+                mov rdx, [rel printf_buffer_len]
                 mov rsi, printf_buffer
 
                 syscall 
@@ -110,15 +110,57 @@ print:
 ; |                     update_buffer                     |
 ; | Updates buffer and prints it if it is neccessary      |
 ; | Args: rdx - insert length                             |
-; | Delete: does it fuck you?                             |
+; | Delete: does it fuck you? (not rdi)                   |
 ; _________________________________________________________
 
 update_buffer:
 
-                cmp rdx, [rel printf_buffer_len]
+                mov rcx, max_printf_buffer_size
+                sub rcx, [rel printf_buffer_len]
+
+                cmp rdx, rcx
                 ja .clean_buffer
 
+                mov rsi, printf_buffer
+                add rsi, [rel printf_buffer_len]
+                add [rel printf_buffer_len], rcx
+                mov rdx, insert_buffer
+
+.loop:
+                mov al, [rdx] 
+                mov [rsi], al 
+                
+                inc rdx 
+                inc rsi 
+                
+                dec rcx 
+                jnz .loop
+
+                jmp .leave 
+
+
 .clean_buffer:
+                
+                push rdx
+
+                mov rdx, [rel printf_buffer_len] 
+                
+                mov rax, SysCallWrite
+                mov rdi, StdOut
+                mov rsi, printf_buffer
+
+                syscall
+
+                mov rax, SysCallWrite
+                pop rdx
+                mov rsi, insert_buffer
+
+                syscall 
+                  
+                mov rdi, printf_buffer
+                mov qword [rel printf_buffer_len], 0
+
+.leave:
 
                 ret
 
@@ -133,7 +175,9 @@ update_buffer:
                                                           
 transform_string:
 
-                xor rdx, rdx 
+                mov rsi, printf_buffer
+                xor rdx, rdx
+
 
 .loop: ; transfering and editing source string to buffer 
                 mov al, [rdi]   
@@ -144,7 +188,10 @@ transform_string:
 
                 cmp al, '%'
                 jne .skip_call
+                add [rel printf_buffer_len], rdx
+                xor rdx, rdx 
                 call handle_insertion 
+                xor rdx, rdx 
                 jmp .skip_insertion
 .skip_call:
                 mov [rsi], al
@@ -178,6 +225,8 @@ handle_insertion:
                 cmp al, 'z'     ; other default cases  
                 ja .default
 
+                mov rsi, insert_buffer
+                push update_buffer
                 jmp [.jump_table + 8*rax]
 
 section .rdata 
