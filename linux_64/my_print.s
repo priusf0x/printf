@@ -36,6 +36,18 @@ my_pr1ntf:
 
                 push rax 
 
+
+;////////////// Saving vector registers ///////////////////
+
+                movsd [rel sxmm0], xmm0
+                movsd [rel sxmm1], xmm1
+                movsd [rel sxmm2], xmm2
+                movsd [rel sxmm3], xmm3
+                movsd [rel sxmm4], xmm4
+                movsd [rel sxmm5], xmm5
+                movsd [rel sxmm6], xmm6
+                movsd [rel sxmm7], xmm7
+
 ;///////////////////// Prologue ///////////////////////////
                 push rbp 
                 mov rbp, rsp
@@ -59,7 +71,7 @@ section .text
 ; rsi - pointer to printf buffer
 ; r8 - argument no
 ; r11-r15 - save registers
-; r15 - float no  
+; r9 - float no  
 
 SysCallWrite    equ 1d
 StdOut          equ 1d
@@ -78,6 +90,7 @@ print:
 
                 lea rsi, [rel printf_buffer]
                 xor r8, r8 
+                xor r9, r9
 
                 call transform_string
 
@@ -140,6 +153,10 @@ update_buffer:
                 mov byte [rel is_string], 00h
 
 .loop:
+
+                test rcx, rcx
+                jz .leave 
+                
                 mov al, [rdx] 
                 mov [rsi], al 
                 
@@ -147,9 +164,7 @@ update_buffer:
                 inc rsi 
                 
                 dec rcx 
-                jnz .loop
-
-                jmp .leave 
+                jmp .loop
 
 
 .clean_buffer:
@@ -279,7 +294,7 @@ section .rdata
                 dq .c      ;'c'
                 dq .d      ;'d'
                 dq .default;'e'
-                dq .default;'f'
+                dq .f      ;'f'
                 dq .default;'g'
                 dq .default;'h'
                 dq .default;'i'
@@ -390,6 +405,14 @@ section .text
 
                 ret
 
+;//////////////////////////////////////////////////////////
+
+.f:
+                
+                call get_current_xmm ; xmm0 = arg
+                call print_float
+
+                ret 
 
 ;//////////////////////////////////////////////////////////
 
@@ -402,6 +425,107 @@ section .text
 
 ;//////////////////////////////////////////////////////////
 
+
+; _________________________________________________________
+; |                  print_float                          |
+; | Prints float in buffer                                |
+; | Args: xmm0 - float number                             |
+; | Returns: add to rdx printed amount                    |
+; |          skips rsi buffer                             |
+; | Delete:                                               |
+; _________________________________________________________
+
+int_float_seperator equ '.'
+max_float_digits   equ 9d
+
+print_float:
+
+;/////////////////// Print integer part ///////////////////
+                xor rax, rax
+                cvttsd2si eax, xmm0
+
+                mov r11, rbx 
+                mov r12, rsi
+                mov r13, rdx
+
+                mov rbx, 10d
+                call convert_decemical
+                
+                mov rbx, r11
+                mov rsi, r12
+                mov rdx, r13
+                
+                mov rcx, max_dec_length
+                call print_converted
+
+; ////////////////////// Dot //////////////////////////////
+
+                mov [rsi], int_float_seperator
+                inc rsi 
+                inc rdx 
+
+                ret 
+
+;.print_float_part:
+;
+;                mov rsi, printnumber
+;
+;                mov ebx, 10
+;                cmp eax, 0
+;
+;.loop:
+;                cdq
+;                mul ebx
+;                mov [rsi], edx
+;                inc rsi
+;                dec rcx 
+;                jnz .loop
+;
+;                ret
+                
+section .data 
+max_amount_digits equ 10
+float_part      db 9 
+
+; WARNING: can increment r8 value 
+; _________________________________________________________
+; |                  get_current_xmm                      |
+; | Puts float number considered to current r9 val        |
+; | Args: r9, r8                                          |
+; | Returns: xmm0 - current float                         |
+; _________________________________________________________
+
+section .text
+
+xmm_regs_amount equ 8
+
+get_current_xmm:
+                
+                cmp r9, xmm_regs_amount
+                jae .get_from_stack
+                movsd xmm0, [xmm_regs + r9*8]
+                inc r9
+                jmp .leave
+
+.get_from_stack:
+                movsd xmm0, [16 + rbp + r8*8]
+                inc r8
+
+.leave:
+                ret
+
+section .data 
+align 16
+xmm_regs:
+sxmm0           dq 0
+sxmm1           dq 0
+sxmm2           dq 0
+sxmm3           dq 0
+sxmm4           dq 0
+sxmm5           dq 0
+sxmm6           dq 0
+sxmm7           dq 0
+
 ; _________________________________________________________
 ; |                  print_two_power                      |
 ; | Prints rax in 2-power format                          |
@@ -411,6 +535,8 @@ section .text
 ; |          skips rsi buffer                             |
 ; | Delete: rax, rcx                                      |
 ; _________________________________________________________
+
+section .text
 
 print_two_power:
 
@@ -422,7 +548,6 @@ print_two_power:
 
                 call convert_two_power
                 
-                mov r9, r11
                 mov rdx, r12
                 mov rbx, r13
                 mov rsi, r14
@@ -431,6 +556,8 @@ print_two_power:
                 mov rcx, max_num_len           
                 
                 call print_converted
+
+                mov r9, r11
 
                 ret
 
@@ -542,7 +669,13 @@ print_converted:
 .skip_num:
                 cmp rcx, printnumber
                 jne .loop
+; ////////////////////// if arg = 0 /////////////////////// 
 
+                test rdx, rdx 
+                jnz .leave
+                mov [rel insert_buffer], '0' 
+                inc rdx
+.leave:
                 ret
 
 section     .rdata 
@@ -578,6 +711,7 @@ insert_string:
                 ret                                       
                      
 section     .data
+
 max_printf_buffer_size      equ 10d
 printf_buffer_len           dq 0
 printf_buffer               db max_printf_buffer_size dup(0)
@@ -587,7 +721,7 @@ insert_buffer               db max_insert_buffer_size dup(0)
 is_string                   db 0
 
 printsign                   db 0
-max_num_len                 equ 32
+max_num_len                 equ 64
 printnumber                 db max_num_len dup (0)
 
 
