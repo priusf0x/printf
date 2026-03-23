@@ -12,6 +12,7 @@
 ; _________________________________________________________
 
 global          my_pr1ntf
+extern          printf
 
 ; _________________________________________________________
 ; |                       my_pr1ntf                       |
@@ -33,9 +34,9 @@ my_pr1ntf:
                 push rcx ; 4st argument 
                 push rdx ; 3st argument 
                 push rsi ; 2st argument 
+                push rdi
 
                 push rax 
-
 
 ;////////////// Saving vector registers ///////////////////
 
@@ -69,7 +70,7 @@ section .data
 section .text
 
 ; rsi - pointer to printf buffer
-; r8 - argument no
+; r8 - argument no   motya sosal
 ; r11-r15 - save registers
 ; r9 - float no  
 
@@ -91,10 +92,11 @@ print:
                 lea rsi, [rel printf_buffer]
                 xor r8, r8 
                 xor r9, r9
+                mov qword [rel printf_buffer_len], 0
 
                 call transform_string
 
-;//////////////// Printing string to stdout /////////////// 
+;;//////////////// Printing string to stdout /////////////// 
 
                 mov rax, SysCallWrite
                 mov rdi, StdOut
@@ -111,18 +113,32 @@ print:
                 pop r12
                 pop r11
 
-                add rsp, 5 * 8
-
                 mov rsp, rbp
                 
                 pop rbp
                 pop rax
-                add rsp, 8*5
+
+                pop rdi
+                pop rsi ; 2st argument 
+                pop rdx ; 3st argument 
+                pop rcx ; 4st argument 
+                pop r8  ; 5st argument 
+                pop r9  ; 6st argument
+
+                mov [rel return_adress],rax
+                xor rax, rax
+
+                ;call printf
+                mov rax, [rel return_adress]
                 push rax
 
-                mov rax, rdx
+                ;mov rax, rdx
 
                 ret
+
+section .data 
+return_adress   dq 0
+section .text 
 
 ; _________________________________________________________
 ; |                     update_buffer                     |
@@ -137,7 +153,7 @@ update_buffer:
                 add rcx, rdx
                 cmp rcx, max_printf_buffer_size
 
-                ja .clean_buffer
+                jae .clean_buffer
 
                 mov rsi, printf_buffer
                 add rsi, [rel printf_buffer_len]
@@ -166,7 +182,6 @@ update_buffer:
                 dec rcx 
                 jmp .loop
 
-
 .clean_buffer:
                 
                 push rdi
@@ -181,12 +196,12 @@ update_buffer:
                 syscall
 
                 mov al, [rel is_string]
-                test al, al
-
                 mov rsi, insert_buffer
+                test al, al
                 jz .skip_string
                 mov rsi, [rel insert_buffer]
                 mov byte [rel is_string], 00h
+
 .skip_string:
 
                 mov rax, SysCallWrite
@@ -195,7 +210,6 @@ update_buffer:
                 syscall 
 
                 pop rdi 
-                mov rsi, printf_buffer
                 mov qword [rel printf_buffer_len], 0
 
 .leave:
@@ -218,10 +232,9 @@ transform_string:
 
 .loop: ; transfering and editing source string to buffer 
                 cmp rdx, max_printf_buffer_size  
-                je .clean_buffer
+                jae .clean_buffer
 
                 mov al, [rdi]   
-
                 cmp al, '%'
                 je .handle_percent
 
@@ -230,31 +243,35 @@ transform_string:
                 inc rdx
                 inc rsi
                 test al, al
-                jne .loop
+                jnz .loop
 
-                add [rel printf_buffer_len], rdx
+                mov [rel printf_buffer_len], rdx
                                                         
                 ret                                       
 
 .handle_percent:
     
                 inc rdi
-                add [rel printf_buffer_len], rdx
+                mov [rel printf_buffer_len], rdx
                 xor rdx, rdx 
                 call handle_insertion 
-                xor rdx, rdx 
+                mov rdx, [rel printf_buffer_len] 
+                mov rsi, printf_buffer
+                add rsi, rdx
                 jmp .loop
                 
 .clean_buffer:
 
-                mov r11, rdi
+                push rdi
                 mov rax, SysCallWrite
                 mov rdi, StdOut
-                mov rsi, printf_buffer
+                lea rsi, [rel printf_buffer]
                 syscall
                 xor rdx, rdx
-                mov rsi, printf_buffer
-                mov rdi, r11 
+                mov qword [rel printf_buffer_len], 0
+                lea rsi, [rel printf_buffer]
+                pop rdi 
+
                 jmp  .loop
 
 
@@ -295,23 +312,11 @@ section .rdata
                 dq .d      ;'d'
                 dq .default;'e'
                 dq .f      ;'f'
-                dq .default;'g'
-                dq .default;'h'
-                dq .default;'i'
-                dq .default;'j'
-                dq .default;'k'
-                dq .default;'l'
-                dq .default;'m'
-                dq .default;'n'
+                times 'o'-'g' dq .default
                 dq .o      ;'o'
-                dq .default;'p'
-                dq .default;'q'
-                dq .default;'r'
+                times 's'-'p' dq .default
                 dq .s      ;'s'
-                dq .default;'t'
-                dq .default;'u'
-                dq .default;'v'
-                dq .default;'w'
+                times 'x'-'t' dq .default
                 dq .x;      'x'
                 dq .default;'y'
                 dq .default;'z'
@@ -328,7 +333,7 @@ section .text
 ;//////////////////////////////////////////////////////////
 
 .c:
-                mov rax, [16 + rbp + r8*8]
+                mov rax, [24 + rbp + r8*8]
                 mov [rsi], al
                 inc r8
 
@@ -340,7 +345,7 @@ section .text
 
 .d:
 
-                mov rax, [16 + rbp + r8*8]
+                mov rax, [24 + rbp + r8*8]
                 inc r8
 
                 mov r11, rbx 
@@ -362,7 +367,7 @@ section .text
 ;//////////////////////////////////////////////////////////
 
 .b:
-                mov rax, [16 + rbp + r8*8]
+                mov rax, [24 + rbp + r8*8]
                 inc r8
                 mov rcx, 1
 
@@ -374,7 +379,7 @@ section .text
 
 .x:
 
-                mov rax, [16 + rbp + r8*8]
+                mov rax, [24 + rbp + r8*8]
                 inc r8
                 mov rcx, 4
 
@@ -386,9 +391,9 @@ section .text
 
 .o:
 
-                mov rax, [16 + rbp + r8*8]
+                mov rax, [24 + rbp + r8*8]
                 inc r8
-                mov rcx, 4
+                mov rcx, 3
 
                 call print_two_power
                 
@@ -398,7 +403,7 @@ section .text
 
 .s:
 
-                mov rax, [16 + rbp + r8*8]
+                mov rax, [24 + rbp + r8*8]
                 inc r8
 
                 call insert_string
@@ -423,7 +428,7 @@ section .text
 
                 ret
 
-;//////////////////////////////////////////////////////////
+;/////////////////e/////////////////////////////////////////
 
 
 ; _________________________________________________________
@@ -444,16 +449,16 @@ print_float:
                 xor rax, rax
                 cvttsd2si eax, xmm0
 
-                mov r11, rbx 
-                mov r12, rsi
-                mov r13, rdx
+                mov r12, rbx 
+                mov r13, rsi
+                mov r14, rdx
 
                 mov rbx, 10d
                 call convert_decemical
                 
-                mov rbx, r11
-                mov rsi, r12
-                mov rdx, r13
+                mov rbx, r12
+                mov rsi, r13
+                mov rdx, r14
                 
                 mov rcx, max_dec_length
                 call print_converted
@@ -462,30 +467,27 @@ print_float:
 
                 mov [rsi], int_float_seperator
                 inc rsi 
-                inc rdx 
+                inc rdx
 
-                ret 
-
-;.print_float_part:
-;
-;                mov rsi, printnumber
-;
-;                mov ebx, 10
 ;                cmp eax, 0
+;                mov rcx, max_float_digits
 ;
 ;.loop:
-;                cdq
-;                mul ebx
-;                mov [rsi], edx
+                 mulsd xmm0, [rel float_part]
+;                cvttsd2si rax, xmm0
+;                mov al, [rel print_symbols + rax]
+;                mov [rsi], al
 ;                inc rsi
-;                dec rcx 
+
+;                inc rd x
+;                dec 
 ;                jnz .loop
-;
-;                ret
+
+                ret
                 
 section .data 
 max_amount_digits equ 10
-float_part      db 9 
+float_part        dq 1076101120
 
 ; WARNING: can increment r8 value 
 ; _________________________________________________________
@@ -501,7 +503,7 @@ xmm_regs_amount equ 8
 
 get_current_xmm:
                 
-                cmp r9, xmm_regs_amount
+                cmp [r9], xmm_regs_amount
                 jae .get_from_stack
                 movsd xmm0, [xmm_regs + r9*8]
                 inc r9
@@ -610,7 +612,7 @@ convert_decemical:
                 mov byte [rel printsign], 0
                 mov rsi, printnumber
 
-                mov bx, 10
+                mov rbx, 10
                 cmp eax, 0
                 jge .skip_sign 
                 neg rax
@@ -712,7 +714,7 @@ insert_string:
                      
 section     .data
 
-max_printf_buffer_size      equ 10d
+max_printf_buffer_size      equ 4096d
 printf_buffer_len           dq 0
 printf_buffer               db max_printf_buffer_size dup(0)
 
