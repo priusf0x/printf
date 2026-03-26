@@ -1,24 +1,23 @@
-#include <climits>
+#include "test.h"
+
 #include <stdio.h>
+#include <climits>
 
 extern "C" int my_pr1ntf(const char*, ...);
 
 int main()
 {
+    // TestLongString(printf);
 
-    my_pr1ntf("%f %f %f %f %f %f %f\n", 
-                -143240.034324,
-                -11.034324,
-                -12.034324,
-                13.034324,
-                -14.034324,
-                -0.02,
-                -16.034324
-                );
-
-
-    // #include "../test.h"
-
+    // my_pr1ntf("%f %f %f %f %f %f %f\n", 
+                // -143240.034324,
+                // -11.034324,
+                // -12.034324,
+                // 13.034324,
+                // -14.034324,
+                // -0.02,
+                // -16.034324
+                // );
     my_pr1ntf("%d %s  %x %d%%%b%c\n", -1, "love", 3802, 100, 31, 33);
     my_pr1ntf("%o\n", 312312);
     my_pr1ntf("meow %x\n", 0xFFFFFFFFFFFFaFFF);

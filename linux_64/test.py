@@ -24,8 +24,13 @@ for i in range(maxim):
 
 final =  '"' + "".join(constchar) + '"' + "".join(args)
 
-with open("test.h", "w") as f:
-    print("my_pr1ntf(" + final + ");", file=f)
+header = '\
+void TestLongString(int (*print)(const char*, ...)){'\
+
+file_name = "linux_64/test.cpp"
+
+with open(file_name, "w") as f:
+    print(header, "print(" + final + ");}", file=f)
 
         
     

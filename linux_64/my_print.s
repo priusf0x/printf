@@ -25,7 +25,28 @@ extern          printf
 default rel
 section .text
 
+%macro
+
+
+%endmacro
+
 my_pr1ntf:
+
+;////////////// Saving vector registers ///////////////////
+
+;unable to create structs because of absolute adress warings 
+                
+                test al, al 
+                jz .skip_float_save
+                movsd [sxmm0], xmm0
+                movsd [sxmm1], xmm1
+                movsd [sxmm2], xmm2
+                movsd [sxmm3], xmm3
+                movsd [sxmm4], xmm4
+                movsd [sxmm5], xmm5
+                movsd [sxmm6], xmm6
+                movsd [sxmm7], xmm7
+.skip_float_save:
 
                 pop rax
 ;///////////////// Pushing arguments register /////////////
@@ -39,21 +60,20 @@ my_pr1ntf:
 
                 push rax 
 
-;////////////// Saving vector registers ///////////////////
-
-;unable to create structs because of absolute adress warings 
-                movsd [sxmm0], xmm0
-                movsd [sxmm1], xmm1
-                movsd [sxmm2], xmm2
-                movsd [sxmm3], xmm3
-                movsd [sxmm4], xmm4
-                movsd [sxmm5], xmm5
-                movsd [sxmm6], xmm6
-                movsd [sxmm7], xmm7
-
 ;///////////////////// Prologue ///////////////////////////
+
                 push rbp 
                 mov rbp, rsp
+
+;///////////////// Saving "save" registers ////////////////
+
+                push r10
+                push r11
+                push r12
+                push r13
+                push r14
+                push r15
+                push rbx
 
                 jmp print
 
@@ -81,15 +101,6 @@ STACK_OFFSET    equ 24d
 
 print: 
 
-;///////////////// Saving "save" registers ////////////////
-
-                push r10
-                push r11
-                push r12
-                push r13
-                push r14
-                push r15
-
 ;//////////////////////////////////////////////////////////
 
                 lea rsi, [printf_buffer]
@@ -104,10 +115,10 @@ print:
                 mov rax, SYS_CALL_WRITE
                 mov rdi, STD_OUT
                 mov rdx, [printf_buffer_len]
-                mov rsi, printf_buffer
+                lea rsi, [printf_buffer]
 
                 syscall 
-            
+
 ;//////////////////////// Epilogue ////////////////////////
 
                 pop r15
@@ -118,17 +129,18 @@ print:
                 pop r10
 
                 mov rsp, rbp
-                
+
                 pop rbp
                 pop rax
 
-                pop rdi
-                pop rsi ; 2st argument 
-                pop rdx ; 3st argument 
-                pop rcx ; 4st argument 
-                pop r8  ; 5st argument 
-                pop r9  ; 6st argument
+                add rsi, 6*8
 
+                ;pop rdi
+                ;pop rsi ; 2st argument 
+                ;pop rdx ; 3st argument 
+                ;pop rcx ; 4st argument 
+                ;pop r8  ; 5st argument 
+                ;pop r9  ; 6st argument
                 push rax
 
                 ret
@@ -152,11 +164,11 @@ update_buffer:
 
                 jae .clean_buffer
 
-                mov rsi, printf_buffer
+                lea rsi, [printf_buffer]
                 add rsi, [printf_buffer_len]
                 mov rcx, rdx 
                 add [printf_buffer_len], rdx
-                mov rdx, insert_buffer
+                lea rdx, [insert_buffer]
 
                 mov al, [is_string]
                 test al, al
@@ -169,31 +181,31 @@ update_buffer:
 
                 test rcx, rcx
                 jz .leave 
-                
+
                 mov al, [rdx] 
                 mov [rsi], al 
-                
+
                 inc rdx 
                 inc rsi 
-                
+
                 dec rcx 
                 jmp .loop
 
-.clean_buffer:
-                
+.clean_buffer: ; TODO: macro
+
                 push rdi
                 push rdx
 
                 mov rdx, [printf_buffer_len] 
-                
+
                 mov rax, SYS_CALL_WRITE
                 mov rdi, STD_OUT
-                mov rsi, printf_buffer
+                lea rsi, [printf_buffer]
 
                 syscall
 
                 mov al, [is_string]
-                mov rsi, insert_buffer
+                lea rsi, [insert_buffer]
                 test al, al
                 jz .skip_string
                 mov rsi, [insert_buffer]
@@ -221,10 +233,10 @@ update_buffer:
 ; | Returns: rdx - string length                          |
 ; | Delete: rdi, rsi, rax                                 |
 ; _________________________________________________________
-                                                          
+
 transform_string:
 
-                mov rsi, printf_buffer
+                lea rsi, [printf_buffer]
                 xor rdx, rdx
 
 .loop: ; transfering and editing source string to buffer 
@@ -243,20 +255,20 @@ transform_string:
                 jnz .loop
 
                 mov [printf_buffer_len], rdx
-                                                        
+
                 ret                                       
 
 .handle_percent:
-    
+
                 inc rdi
                 mov [printf_buffer_len], rdx
                 xor rdx, rdx 
                 call handle_insertion 
                 mov rdx, [printf_buffer_len] 
-                mov rsi, printf_buffer
+                lea rsi, [printf_buffer]
                 add rsi, rdx
                 jmp .loop
-                
+
 .clean_buffer:
 
                 push rdi
@@ -272,20 +284,21 @@ transform_string:
                 jmp  .loop
 
 
-                                                          
+
 ; _________________________________________________________
 ; |                handle_insertion                       |
 ; | Main printf function                                  |
 ; | Args: rdi - source string                             |
 ; |       rsi - printable buffer                          |
 ; | Returns: rdx - string length                          |
-; | Delete: rdi, rsi, rax, rcx                            |
+; | Delete: rsi, rax, rcx, r9                             |
 ; _________________________________________________________
 
 handle_insertion:
 
-                push update_buffer
-                mov rsi, insert_buffer
+                lea rcx, [update_buffer]
+                push rcx
+                lea rsi, [insert_buffer]
 
                 xor rax, rax 
 
@@ -293,29 +306,31 @@ handle_insertion:
                 inc rdi
 
                 sub al, '%'     ; formatting character for jump_table
-                cmp al, 'z'     ; other default cases  
-                ja .default
+                cmp al, 'x'     ; other default cases  
+                ja .default     ; Lower bound is checked by this condition (x - '%' > 128)
 
-                jmp [.jump_table + 8*rax]
+                lea rcx, [.jump]
+                lea r9, [.jump_table]
+                add rcx, [r9 + 8*rax]
+.jump:
+                jmp rcx
 
 section .rdata 
 .jump_table:
-                dq .percent;'%'
-                times 'a'-'%'-1 dq .default
-                dq .default;'a'
-                dq .b      ;'b'
-                dq .c      ;'c'
-                dq .d      ;'d'
-                dq .default;'e'
-                dq .f      ;'f'
-                times 'o'-'g' dq .default
-                dq .o      ;'o'
-                times 's'-'p' dq .default
-                dq .s      ;'s'
-                times 'x'-'t' dq .default
-                dq .x;      'x'
-                dq .default;'y'
-                dq .default;'z'
+                dq .percent                 - .jump;'%'
+                times 'a'-'%'-1 dq .default - .jump
+                dq .default                 - .jump;'a'
+                dq .b                       - .jump;'b'
+                dq .c                       - .jump;'c'
+                dq .d                       - .jump;'d'
+                dq .default                 - .jump;'e'
+                dq .f                       - .jump;'f'
+                times 'o'-'g' dq .default   - .jump
+                dq .o                       - .jump;'o
+                times 's'-'p' dq .default   - .jump
+                dq .s                       - .jump;'s'
+                times 'x'-'t' dq .default   - .jump
+                dq .x                       - .jump;'x'
 
 section .text
 
@@ -324,7 +339,6 @@ section .text
 .default:
                 inc rdi
                 ret
-
 
 ;//////////////////////////////////////////////////////////
 
@@ -349,11 +363,11 @@ section .text
                 mov r13, rdx
 
                 mov rbx, 10d
-                call convert_decemical
-                
+                call convert_decimal
+
                 mov rbx, r14
                 mov rsi, r12
-                mov rdx, r13
+                mov rdx, r13                                                              
 
                 mov rcx, MAX_DEC_LENGTH
                 call print_converted
@@ -374,25 +388,23 @@ section .text
 ;//////////////////////////////////////////////////////////
 
 .x:
-
                 mov rax, [STACK_OFFSET + rbp + r8*8]
                 inc r8
                 mov rcx, 4
 
                 call print_two_power
-                
+
                 ret
 
 ;//////////////////////////////////////////////////////////
 
 .o:
-
                 mov rax, [STACK_OFFSET + rbp + r8*8]
                 inc r8
                 mov rcx, 3
 
                 call print_two_power
-                
+
                 ret
 
 ;//////////////////////////////////////////////////////////
@@ -409,7 +421,6 @@ section .text
 ;//////////////////////////////////////////////////////////
 
 .f:
-                
                 call get_current_xmm ; xmm0 = arg
                 call print_float
 
@@ -456,13 +467,11 @@ print_float:
                 cvtsi2sd xmm1, eax
                 subsd xmm0, xmm1
 
-                mov r12, rbx 
                 mov r13, rsi
                 mov r14, rdx
 
-                call convert_decemical
+                call convert_decimal
 
-                mov rbx, r12
                 mov rsi, r13
                 mov rdx, r14
 
@@ -476,7 +485,7 @@ print_float:
                 inc rdx
 
 ; //////////////////// Float_part /////////////////////////
- 
+
                 mov rcx, MAX_FLOAT_DIGITS
                 movsd xmm2, [FLOAT_TEN] 
 
@@ -495,10 +504,11 @@ print_float:
                 jnz .loop
 
                 ret
-                
+
 section .rdata 
-FLOAT_TEN       dq 10.0
-ABS_MASK_DOUBLE dq 0x7FFFFFFFFFFFFFFF
+align 16
+ABS_MASK_DOUBLE dq 0x7FFFFFFFFFFFFFFF, 0
+FLOAT_TEN       dq 10.0, 0
 
 ; WARNING: can increment r8 value 
 ; _________________________________________________________
@@ -506,19 +516,21 @@ ABS_MASK_DOUBLE dq 0x7FFFFFFFFFFFFFFF
 ; | Puts float number considered to current r9 val        |
 ; | Args: r9, r8                                          |
 ; | Returns: xmm0 - current float                         |
+; | Delete: rcx                                           |
 ; _________________________________________________________
 
 section .text
 
-XMM_REGS_AMOUNT equ 8
+XMM_REGS_AMOUNT equ 8 * 2  ; for 16 align 
 
 get_current_xmm:
                 
+                lea rcx, [xmm_regs]
                 mov r9, [float_amount]
                 cmp r9, XMM_REGS_AMOUNT
                 je .get_from_stack
-                movsd xmm0, [xmm_regs + r9*8]
-                inc r9
+                movsd xmm0, [rcx + r9*8]
+                add r9, 2
                 mov [float_amount], r9
                 jmp .leave
 
@@ -531,15 +543,15 @@ get_current_xmm:
 
 section .data 
 align 16
-xmm_regs:
-sxmm0           dq 0
-sxmm1           dq 0
-sxmm2           dq 0
-sxmm3           dq 0
-sxmm4           dq 0
-sxmm5           dq 0
-sxmm6           dq 0
-sxmm7           dq 0
+xmm_regs:                                 
+sxmm0           dq 0, 0 
+sxmm1           dq 0, 0                      
+sxmm2           dq 0, 0
+sxmm3           dq 0, 0
+sxmm4           dq 0, 0
+sxmm5           dq 0, 0
+sxmm6           dq 0, 0
+sxmm7           dq 0, 0
 float_amount    dq 0
 
 ; _________________________________________________________
@@ -557,19 +569,17 @@ section .text
 print_two_power:
 
                 mov r12, rdx
-                mov r13, rbx
                 mov r14, rsi
                 mov r15, rcx
 
                 call convert_two_power
-                
+
                 mov rdx, r12
-                mov rbx, r13
                 mov rsi, r14
                 mov rcx, r15
 
-                mov rcx, max_num_len           
-                
+                mov rcx, MAX_NUM_LEN          
+
                 call print_converted
 
                 ret
@@ -585,17 +595,16 @@ print_two_power:
 convert_two_power:
 
                 mov byte [print_sign], 0
-                mov rsi, print_number
+                lea rsi, [print_number]
 
                 xor r9, r9 
                 inc r9 
                 shl r9, rcx
                 dec r9
 
-                mov rdx, max_num_len           
-                
+                mov rdx, MAX_NUM_LEN           
+
 .loop:
-                
                 mov rbx, rax 
                 and rbx, r9
                 mov [rsi], rbx
@@ -608,20 +617,19 @@ convert_two_power:
                 ret
 
 ; _________________________________________________________
-; |                convert_decemical                      |
-; | Separate eax in number-buffer in decemical format     |
+; |                convert_decimal                        |
+; | Separate eax in number-buffer in decimal format       |
 ; | Args: eax - number                                    |
 ; | Returns: add to rdx printed amount                    |
 ; |          skips rsi buffer                             |
 ; | Delete: rdx, rcx, rax, rsi, ebx                       |
 ; _________________________________________________________
-
 MAX_DEC_LENGTH  equ 10d
 
-convert_decemical:
+convert_decimal:
 
                 mov byte [print_sign], 0
-                mov rsi, print_number
+                lea rsi, [print_number]
 
                 mov rbx, 10
                 cmp eax, 0
@@ -647,7 +655,7 @@ convert_decemical:
 ; |       rcx - offset                                    |
 ; | Returns: add to rdx printed amount                    |
 ; |          skips rsi buffer                             |
-; | Delete: rsi, rax, rcx, r9                             |
+; | Delete: rsi, rax, rcx, r9, rbx                        |
 ; _________________________________________________________
 
 print_converted:
@@ -663,8 +671,9 @@ print_converted:
 
 .skip_sign: 
 
+                lea r9, [print_number]
+                add rcx, r9 
                 xor r9b, r9b
-                add rcx, print_number 
 
 .loop:
                 dec rcx
@@ -675,12 +684,14 @@ print_converted:
 .skip_flag_set:
                 cmp r9b, 0
                 je .skip_num
-                mov r9b, [PRINT_SYMBOLS + rax]
+                lea rbx, [PRINT_SYMBOLS]
+                mov r9b, [rbx + rax]
                 mov [rsi], r9b
                 inc rsi
                 inc rdx
 .skip_num:
-                cmp rcx, print_number
+                lea rbx, [print_number]
+                cmp rcx, rbx
                 jne .loop
 ; ////////////////////// if arg = 0 /////////////////////// 
 
@@ -723,19 +734,19 @@ insert_string:
                 mov byte [is_string], 0FFh 
 
                 ret                                       
-                     
+
 section     .data
 
 MAX_PRINTF_BUFFER_SIZE      equ 1000h
 printf_buffer_len           dq 0
 printf_buffer               db MAX_PRINTF_BUFFER_SIZE dup(0)
 
-max_insert_buffer_size      equ 128d
-insert_buffer               db max_insert_buffer_size dup(0)
+MAX_INSERT_BUFFER_SIZE      equ 128d
+insert_buffer               db MAX_INSERT_BUFFER_SIZE dup(0)
 is_string                   db 0
 
-print_sign                   db 0
-max_num_len                 equ 64
-print_number                 db max_num_len dup (0)
+print_sign                  db 0
+MAX_NUM_LEN                 equ 64
+print_number                db MAX_NUM_LEN dup (0)
 
 
