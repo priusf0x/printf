@@ -25,28 +25,14 @@ extern          printf
 default rel
 section .text
 
-%macro
-
-
+%macro push_xmm 1
+                sub rsp, 8
+                movsd [rsp], %1
 %endmacro
 
 my_pr1ntf:
 
-;////////////// Saving vector registers ///////////////////
-
-;unable to create structs because of absolute adress warings 
-                
-                test al, al 
-                jz .skip_float_save
-                movsd [sxmm0], xmm0
-                movsd [sxmm1], xmm1
-                movsd [sxmm2], xmm2
-                movsd [sxmm3], xmm3
-                movsd [sxmm4], xmm4
-                movsd [sxmm5], xmm5
-                movsd [sxmm6], xmm6
-                movsd [sxmm7], xmm7
-.skip_float_save:
+                mov [rax_save], rax
 
                 pop rax
 ;///////////////// Pushing arguments register /////////////
@@ -56,7 +42,31 @@ my_pr1ntf:
                 push rcx ; 4st argument 
                 push rdx ; 3st argument 
                 push rsi ; 2st argument 
-                push rdi
+
+                mov r8, rsp 
+                add r8, R_AMOUNT * 8
+
+                mov [r_adress], rsp
+                mov [r_amount], 0
+
+;////////////// Saving vector registers ///////////////////
+                
+                mov byte [is_float_used], 0h
+                mov qword [float_amount], 0
+                mov rcx, [rax_save]
+                test cl, cl 
+                jz .skip_float_save
+                push_xmm xmm7
+                push_xmm xmm6
+                push_xmm xmm5
+                push_xmm xmm4
+                push_xmm xmm3
+                push_xmm xmm2
+                push_xmm xmm1
+                push_xmm xmm0
+                mov [float_adress], rsp
+                mov byte [is_float_used], 0FFh
+.skip_float_save:
 
                 push rax 
 
@@ -78,6 +88,8 @@ my_pr1ntf:
                 jmp print
 
 section .data  
+rax_save        dq 0
+is_float_used   db 0
 
 
 ; _________________________________________________________
@@ -91,20 +103,18 @@ section .data
 
 section .text
 
-; rsi - pointer to printf buffer
-; r8 - argument no   motya sosal
-; r10-r15\r11 - save registers (r11 is hard to use)
+; rdi - pointer to const char string 
+; r8 - adress to stack args
+; r12-r15 - save registers
 
 SYS_CALL_WRITE  equ 1d
 STD_OUT         equ 1d
-STACK_OFFSET    equ 24d
 
 print: 
 
 ;//////////////////////////////////////////////////////////
 
                 lea rsi, [printf_buffer]
-                xor r8, r8 
                 mov qword [float_amount], 0
                 mov qword [printf_buffer_len], 0
 
@@ -121,6 +131,7 @@ print:
 
 ;//////////////////////// Epilogue ////////////////////////
 
+                pop rbx
                 pop r15
                 pop r14
                 pop r13
@@ -133,14 +144,14 @@ print:
                 pop rbp
                 pop rax
 
-                add rsi, 6*8
+                mov cl, [is_float_used]
+                test cl, cl
+                jz .skip_float_del
+                add rsp, XMM_REGS_AMOUNT * 8
+.skip_float_del:
 
-                ;pop rdi
-                ;pop rsi ; 2st argument 
-                ;pop rdx ; 3st argument 
-                ;pop rcx ; 4st argument 
-                ;pop r8  ; 5st argument 
-                ;pop r9  ; 6st argument
+                add rsp, R_AMOUNT * 8
+
                 push rax
 
                 ret
@@ -191,7 +202,7 @@ update_buffer:
                 dec rcx 
                 jmp .loop
 
-.clean_buffer: ; TODO: macro
+.clean_buffer:
 
                 push rdi
                 push rdx
@@ -343,26 +354,22 @@ section .text
 ;//////////////////////////////////////////////////////////
 
 .c:
-                mov rax, [STACK_OFFSET + rbp + r8*8]
+                call get_current_r
                 mov [rsi], al
-                inc r8
 
                 inc rsi
                 inc rdx 
                 ret
 
 ;//////////////////////////////////////////////////////////
-
 .d:
 
-                mov rax, [STACK_OFFSET + rbp + r8*8]
-                inc r8
+                call get_current_r
 
                 mov r14, rbx 
                 mov r12, rsi
                 mov r13, rdx
 
-                mov rbx, 10d
                 call convert_decimal
 
                 mov rbx, r14
@@ -377,10 +384,9 @@ section .text
 ;//////////////////////////////////////////////////////////
 
 .b:
-                mov rax, [STACK_OFFSET + rbp + r8*8]
-                inc r8
-                mov rcx, 1
+                call get_current_r
 
+                mov rcx, 1
                 call print_two_power
 
                 ret
@@ -388,10 +394,9 @@ section .text
 ;//////////////////////////////////////////////////////////
 
 .x:
-                mov rax, [STACK_OFFSET + rbp + r8*8]
-                inc r8
-                mov rcx, 4
+                call get_current_r
 
+                mov rcx, 4
                 call print_two_power
 
                 ret
@@ -399,10 +404,9 @@ section .text
 ;//////////////////////////////////////////////////////////
 
 .o:
-                mov rax, [STACK_OFFSET + rbp + r8*8]
-                inc r8
-                mov rcx, 3
+                call get_current_r
 
+                mov rcx, 3
                 call print_two_power
 
                 ret
@@ -410,9 +414,7 @@ section .text
 ;//////////////////////////////////////////////////////////
 
 .s:
-
-                mov rax, [STACK_OFFSET + rbp + r8*8]
-                inc r8
+                call get_current_r
 
                 call insert_string
 
@@ -422,6 +424,7 @@ section .text
 
 .f:
                 call get_current_xmm ; xmm0 = arg
+
                 call print_float
 
                 ret 
@@ -510,7 +513,42 @@ align 16
 ABS_MASK_DOUBLE dq 0x7FFFFFFFFFFFFFFF, 0
 FLOAT_TEN       dq 10.0, 0
 
-; WARNING: can increment r8 value 
+; _________________________________________________________
+; |                  get_current_r                        |
+; | Get current integer register                          |
+; | Args: r9, r8                                          |
+; | Returns: rax - current int                            |
+; | Delete: rcx                                           |
+; _________________________________________________________
+
+section .text
+
+R_AMOUNT        equ 5d
+
+get_current_r:
+                
+                mov r9, [r_amount]
+                cmp r9, R_AMOUNT
+                je .get_from_stack
+                mov rcx, [r_adress]
+                mov rax, [rcx]
+                add rcx, 8 
+                mov [r_adress], rcx
+                inc r9 
+                mov [r_amount], r9
+
+                ret
+
+.get_from_stack:
+                mov rax, [r8]
+                add r8, 8
+
+                ret
+
+section .data 
+r_adress        dq 0
+r_amount        dq 0
+     
 ; _________________________________________________________
 ; |                  get_current_xmm                      |
 ; | Puts float number considered to current r9 val        |
@@ -521,43 +559,36 @@ FLOAT_TEN       dq 10.0, 0
 
 section .text
 
-XMM_REGS_AMOUNT equ 8 * 2  ; for 16 align 
+XMM_REGS_AMOUNT equ 8
 
 get_current_xmm:
                 
-                lea rcx, [xmm_regs]
                 mov r9, [float_amount]
                 cmp r9, XMM_REGS_AMOUNT
                 je .get_from_stack
-                movsd xmm0, [rcx + r9*8]
-                add r9, 2
+                mov rcx, [float_adress]
+                movsd xmm0, [rcx]
+                add rcx, 8
+                mov [float_adress], rcx
+                inc r9
                 mov [float_amount], r9
-                jmp .leave
+                ret 
 
 .get_from_stack:
-                movsd xmm0, [STACK_OFFSET + rbp + r8*8]
-                inc r8          
+                movsd xmm0, [r8]
+                add r8, 8
 
-.leave:
                 ret
 
+
 section .data 
-align 16
-xmm_regs:                                 
-sxmm0           dq 0, 0 
-sxmm1           dq 0, 0                      
-sxmm2           dq 0, 0
-sxmm3           dq 0, 0
-sxmm4           dq 0, 0
-sxmm5           dq 0, 0
-sxmm6           dq 0, 0
-sxmm7           dq 0, 0
+float_adress    dq 0
 float_amount    dq 0
 
 ; _________________________________________________________
 ; |                  print_two_power                      |
 ; | Prints rax in 2-power format                          |
-; | Args: eax - number                                    |
+; | Args: rax - number                                    |
 ; |       rcx - power_of_two                              |
 ; | Returns: add to rdx printed amount                    |
 ; |          skips rsi buffer                             |
@@ -587,7 +618,7 @@ print_two_power:
 ; _________________________________________________________
 ; |                  convert_two_power                    |
 ; | Separate eax in number-buffer in 2-power format       |
-; | Args: eax - number                                    |
+; | Args: rax - number                                    |
 ; |       rcx - power_of_two                              |
 ; | Delete: rdx, rcx, rax, rsi, rbx, r9, r10              |
 ; _________________________________________________________
