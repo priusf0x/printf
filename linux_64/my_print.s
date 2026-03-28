@@ -326,7 +326,7 @@ handle_insertion:
 .jump:
                 jmp rcx
 
-section .rdata 
+section .rodata 
 .jump_table:
                 dq .percent                 - .jump;'%'
                 times 'a'-'%'-1 dq .default - .jump
